@@ -1,266 +1,256 @@
 #!/bin/bash
 
+#PAth variables to create Directories
 USERNAME="dsouza56"
 ROOT="/home/$USERNAME"
-LOG_DIR="$ROOT/home/backup"
-CBUP_DIR="$LOG_DIR/cbup24s"
-IBUP_DIR="$LOG_DIR/ibup24s"
-DBUP_DIR="$LOG_DIR/dbup24s"
-LOG_FILE="$LOG_DIR/backup.log"
+mainBackUpDir="$ROOT/home/backup"
+completeBackUpDir="$mainBackUpDir/cbup24s"
+incrementalBackUpDir="$mainBackUpDir/ibup24s"
+differentialBackUpDir="$mainBackUpDir/dbup24s"
+logFile="$mainBackUpDir/backup.log"
 
-#Creating relevsnt bakkup directorues
-if [ ! -d "$CBUP_DIR" ]; then
-    mkdir -p "$CBUP_DIR"
+# Checl if Backup directories not created, they are created using mkdir -p
+if [ ! -d "$completeBackUpDir" ]; then
+    mkdir -p "$completeBackUpDir"
 fi
-if [ ! -d "$IBUP_DIR" ]; then
-    mkdir -p "$IBUP_DIR"
+if [ ! -d "$incrementalBackUpDir" ]; then
+    mkdir -p "$incrementalBackUpDir"
 fi
-if [ ! -d "$DBUP_DIR" ]; then
-    mkdir -p "$DBUP_DIR"
+if [ ! -d "$differentialBackUpDir" ]; then
+    mkdir -p "$differentialBackUpDir"
 fi
 
-#Cunter variabl to keeep track
+#Counter Variable to append the correct number of the filea
 cbupCounter=1
 ibupCounter=1
 dbupCounter=1
 
-#File to store Full backup timestampps respectfully
-lastFullBackupTimeStampFile="$LOG_DIR/.lastFullBackupTime"
+# Files to add categrize timestamps
+lastFullBackupTimeStampFile="$mainBackUpDir/.lastFullBackupTime"
+lastIncrementalBackupTimeStampFile="$mainBackUpDir/.lastIncrementalBackupTime"
+lastDifferentialBackupTimeStampFile="$mainBackUpDir/.lastDifferentialBackupTime"
+
+# Initialize timestamp files if they don't exist
 if [ ! -f "$lastFullBackupTimeStampFile" ]; then
-    echo "0" > "$lastFullBackupTimeStampFile"
+    echo $(date +%s) > "$lastFullBackupTimeStampFile"
 fi
-
-#file to store Incrementil bakcup timestamps
-lastIncremenralBackupTimeStampFile="$LOG_DIR/.lastIncrementalBackupTime"
-if [ ! -f "$lastIncremenralBackupTimeStampFile" ]; then
-    echo "0" > "$lastIncremenralBackupTimeStampFile"
+if [ ! -f "$lastIncrementalBackupTimeStampFile" ]; then
+    echo $(date +%s) > "$lastIncrementalBackupTimeStampFile"
 fi
-
-#file to store Differential backuptimestamps
-lastDifferentialBackupTimeStampFile="$LOG_DIR/.lastDifferenitalBackupTime"
 if [ ! -f "$lastDifferentialBackupTimeStampFile" ]; then
-    echo "0" > "$lastDifferentialBackupTimeStampFile"
+    echo $(date +%s) > "$lastDifferentialBackupTimeStampFile"
 fi
 
-#Checking length of user input
+# Checking length of user input
 if [ $# -lt 0 ] || [ $# -gt 3 ]; then
     echo "Please specify up to 3 file extensions, example: backup24.sh .c .txt .pdf"
     echo "Extension can be skipped to consider all file types"
+    exit 1
 fi
-fileTypes=("$@") #User input arguements
 
-#Will b used to update timestamp and details in th backup.log file
+# Add the user arguments to the fileExtToFnd array
+fileExtToFind=("$@") 
+
+# Function to log the relevant results to backup log file
+# Will log the date time file created or the message if no file created.
 logbackupDetails() {
-    local filename=$1
-    echo "$(date +"%a %d %b%Y %I:%M:%S %p %Z") $filename" >> "$LOG_FILE"
+    local result=$1
+    echo "$(date +"%a %d %b%Y %I:%M:%S %p %Z") $result" >> "$logFile"
 }
 
-# Func will backup files wrt to key received
+# Main function that will back up files based on key provided
 backupFiles() {
-    local key=$1;
+    local key=$1
 
-    #Step 1 For complete backup of all fil when user doesnt specify any file typea
+    #This is for Step 1, a complete backup is taken
     if [[ $key == "complete" ]]; then
         echo "Complete Backup Started. Visitng entire ROOT directory, may take some time. Please wait..."
-        filesToBackup=()
-        for arg in ${fileTypes[@]}
-            do
-                #echo "Searching for files ending with $arg in $ROOT"
-                while IFS= read -r file; do
-                    filesToBackup+=("$file")
-                done < <(find "$ROOT" -type f -name "*$arg" -not -path '*/\.*' -not -path "$LOG_DIR/*")
-        done
-        local timestamp=$(date +%s) 
-        local filename="cbup24s-${cbupCounter}.tar"
         
-        #Finfing and backin up files
-        if [ ${#filesToBackup[@]} -eq 0 ]; then # If no file types are specified, backup all files            
-            find "$ROOT" -type f -not -path '*/\.*' -print #ffind
-            tar --exclude=".*" -cvf "$CBUP_DIR/$filename" -C "$ROOT" . 2>/dev/null #tar
-        else #Backing up file types specified by user
-            tar -cvf "$CBUP_DIR/$filename" "${filesToBackup[@]}" 2>/dev/null
+        local timestamp=$(date +%s) #timestamp will be used for logging purposes
+        local filename="cbup24s-${cbupCounter}.tar" #File with respected number will be used for backup and logging
+        local tempFiles=$(mktemp) #Temporary dir with temp files created to add relevant files so tar speed can be optimized
+
+        #Finding files in the Root directory
+        if [ ${#fileExtToFind[@]} -eq 0 ]; then #If user has not mentioned any file types backup all
+            find "$ROOT" -type f -not -path '*/\.*' -not -path "$mainBackUpDir/*" -print0 > "$tempFiles"
+        else #If user has entered file types like .c .txt only those will be searched for in the Root Directory
+            for arg in "${fileExtToFind[@]}"
+            do
+                find "$ROOT" -type f -name "*$arg" -not -path '*/\.*' -not -path "$mainBackUpDir/*" -print0 >> "$tempFiles"
+            done
         fi
+        
+        #Backing up the files that we found and stored in the Temp Files
+        tar --null -cvf "$completeBackUpDir/$filename" --files-from="$tempFiles" 2>/dev/null
+        
+        #Remove the temporary files as not needed further
+        rm -f "$tempFiles"
 
         #Check if tar was succesfull
         if [ $? -eq 0 ]; then
-            logbackupDetails "$filename was created." #Update log file
-            ((cbupCounter++)) #Increment the counter
-            echo "$timestamp" > "$lastFullBackupTimeStampFile" #Update Timestamp in last full backup TS file
+            logbackupDetails "$filename was created." #Log backup details
+            ((cbupCounter++)) #Increase the counter for the next file
+            echo "$timestamp" > "$lastFullBackupTimeStampFile" #Update the time stamp
             echo "Complete Backup completed."
         fi
     fi
 
-    #Step 2 Incremental backup to back up new or updated files since last full backup
+    #Step 2 will now intiate and consider finding and backing up thse files that were created or modified after STEP 1
     if [[ $key == "incrementalRound1" ]]; then
-        local lastFullBackupTimestamp="$lastFullBackupTimeStampFile"
-        local timestamp=$(date +%s) 
-        local filename="ibup24s-${ibupCounter}.tar"
-
-        #Temporary files
-        local tempFilesFound="$LOG_DIR/.tempFindResults"
-        > "$tempFilesFound"
-
-        #Search for files in diretory with extesion typ specified by usr after the last full bak up
         echo "Incremental Backup Round 1 Started. Visitng entire ROOT directory, may take some time. Please wait..."
+        
+        #Reads timestamp in last FULL backup timestamp file, as will be used in the find
+        local lastFullBackupTimestamp=$(cat "$lastFullBackupTimeStampFile") 
+        local timestamp=$(date +%s) #timestamp will be used for logging purposes
+        local filename="ibup24s-${ibupCounter}.tar" #File with respected number will be used for backup and logging
+        local tempFiles=$(mktemp) #Temporary dir with temp files created to add relevant files so tar speed can be optimized
 
-        #Check if the user has entered any file types or not and perform find wrt that
-        if [ ${#fileTypes[@]} -eq 0 ]; then
-            find "$ROOT" -type f -not -path '*/\.*' -not -path "$LOG_DIR/*" -newer "$lastFullBackupTimestamp" -print0 >> "$tempFilesFound" 2>/dev/null
-        else
-            for arg in "${fileTypes[@]}"
+        #Finding files in the Root directory
+        if [ ${#fileExtToFind[@]} -eq 0 ]; then #If user has not mentioned any file types backup all
+            find "$ROOT" -type f -not -path '*/\.*' -not -path "$mainBackUpDir/*" -newermt "@$lastFullBackupTimestamp" -print0 > "$tempFiles"
+        else #If user has entered file types like .c .txt only those will be searched for in the Root Directory
+            for arg in "${fileExtToFind[@]}"
             do
-                find "$ROOT" -type f -name "*$arg" -not -path '*/\.*' -not -path "$LOG_DIR/*" -newer "$lastFullBackupTimestamp" -print0 >> "$tempFilesFound" 2>/dev/null
+                find "$ROOT" -type f -name "*$arg" -not -path '*/\.*' -not -path "$mainBackUpDir/*" -newermt "@$lastFullBackupTimestamp" -print0 >> "$tempFiles"
             done
         fi
-
-        #Check if any files wer found and backup
-        if [ -s "$tempFilesFound" ]; then
-            tar --null -cvf "$IBUP_DIR/$filename" --files-from="$tempFilesFound" 2>/dev/null
-
-            #If backup was succesfull
-            if [ $? -eq 0 ]; then
-                logbackupDetails "$filename was created." #Update log file
-                ((ibupCounter++))
-                echo "$timestamp" > "$lastIncremenralBackupTimeStampFile" #Updae timestamp
-                echo "Incremental Backup Round 1 Completed"
-            fi
-        else #If no files found would giv no changes
+        
+        #If there are files found and were added to temp Files
+        if [ -s "$tempFiles" ]; then
+            #Backing up the files that we found and stored in the Temp Files
+            tar --null -cvf "$incrementalBackUpDir/$filename" --files-from="$tempFiles" 2>/dev/null
+            logbackupDetails "$filename was created." #Log backup details 
+            ((ibupCounter++)) #Increase the counter for the next file
+            echo "$timestamp" > "$lastIncrementalBackupTimeStampFile" #Update the time stamp
+            echo "Incremental Backup Round 1 Completed"
+        else #If no files were found, means no backup was needed to be done
             logbackupDetails "No changes-Incremental backup was not created"
             echo "Incremental Backup Round 1 Completed"
         fi
-        rm -f "$tempFilesFound" #Delet the temporaary file
+
+        #Remove the temporary files as not needed further
+        rm -f "$tempFiles"
     fi
 
-    #Step 3 Incremental backup to back up new or updated files since last incremental backup
+    #Step 3 will now intiate and consider finding and backing up thse files that were created or modified after STEP 3
     if [[ $key == "incrementalRound2" ]]; then
-
-        local lastIncrementalBackupTimeStamp="$lastIncremenralBackupTimeStampFile"
-        local timestamp=$(date +%s) 
-        local filename="ibup24s-${ibupCounter}.tar"
-        local tempFilesFound="$LOG_DIR/.tempFindResults"
-        #echo $filename
-
         echo "Incremental Round 2 Backup Started. Visitng entire ROOT directory, may take some time. Please wait..."
 
-        #Check if the user has entered any file types or not and perform find wrt that
-        # Find the updatd or newly created files since last INCREMENTAL bakup based on user input
-        if [ ${#fileTypes[@]} -eq 0 ]; then
-            find "$ROOT" -type f -not -path '*/\.*' -not -path "$LOG_DIR/*" -newer "$lastIncrementalBackupTimeStamp" -print0 >> "$tempFilesFound" 2>/dev/null
-        else
-            for arg in "${fileTypes[@]}"
+        #Reads timestamp in last INCREMENTAL backup timestamp file, as will be used in the find
+        local lastIncrementalBackupTimeStamp=$(cat "$lastIncrementalBackupTimeStampFile")
+        local timestamp=$(date +%s) #timestamp will be used for logging purposes
+        local filename="ibup24s-${ibupCounter}.tar" #File with respected number will be used for backup and logging
+        local tempFiles=$(mktemp) #Temporary dir with temp files created to add relevant files so tar speed can be optimized
+
+        #Finding files in the Root directory
+        if [ ${#fileExtToFind[@]} -eq 0 ]; then #If user has not mentioned any file types backup all
+            find "$ROOT" -type f -not -path '*/\.*' -not -path "$mainBackUpDir/*" -newermt "@$lastIncrementalBackupTimeStamp" -print0 > "$tempFiles"
+        else #If user has entered file types like .c .txt only those will be searched for in the Root Directory
+            for arg in "${fileExtToFind[@]}"
             do
-                find "$ROOT" -type f -name "*$arg" -not -path '*/\.*' -not -path "$LOG_DIR/*" -newer "$lastIncrementalBackupTimeStamp" -print0 >> "$tempFilesFound" 2>/dev/null
+                find "$ROOT" -type f -name "*$arg" -not -path '*/\.*' -not -path "$mainBackUpDir/*" -newermt "@$lastIncrementalBackupTimeStamp" -print0 >> "$tempFiles"
             done
         fi
 
-        #If filea were found backup
-        if [ -s "$tempFilesFound" ]; then
-            tar --null -cvf "$IBUP_DIR/$filename" --files-from="$tempFilesFound" 2>/dev/null #Bakcuop
-            
-            #If backup was succesfulll
-            if [ $? -eq 0 ]; then
-                logbackupDetails "$filename was created."
-                ((ibupCounter++))
-                echo "$timestamp" > "$lastIncremenralBackupTimeStampFile"
-                echo "Incremental Round 2 Backup Completed"
-            fi
-        else #No files were dounf
+        #If there are files found and were added to temp Files
+        if [ -s "$tempFiles" ]; then
+            #Backing up the files that we found and stored in the Temp Files
+            tar --null -cvf "$incrementalBackUpDir/$filename" --files-from="$tempFiles" 2>/dev/null
+            logbackupDetails "$filename was created." #Log backup details 
+            ((ibupCounter++)) #Increase the counter for the next file
+            echo "$timestamp" > "$lastIncrementalBackupTimeStampFile" #Update the time stamp
+            echo "Incremental Round 2 Backup Completed"
+        else #If no files were found, means no backup was needed to be done
             logbackupDetails "No changes-Incremental backup was not created"
             echo "Incremental Round 2 Backup Completed"
         fi
-        rm -f "$tempFilesFound" #Delete the remporary file
+
+        #Remove the temporary files as not needed further
+        rm -f "$tempFiles"
     fi
 
-    #Step 4 differential backup to back up new or updated files since last full backup
+    #Step 4 will now intiate and consider finding and backing up thse files that were created or modified after STEP 1
     if [[ $key == "differential" ]]; then
-        local lastFullBackupTimestamp="$lastFullBackupTimeStampFile"
-        local timestamp=$(date +%s) 
-        local filename="dbup24s-${dbupCounter}.tar"
-        local tempFilesFound="$LOG_DIR/.tempFindResults"
-        #echo $filename
-
         echo "Differential Backup Started. Visitng entire ROOT directory, may take some time. Please wait..."
 
-        #Check if the user has entered any file types or not and perform find wrt that
-        if [ ${#fileTypes[@]} -eq 0 ]; then
-            find "$ROOT" -type f -not -path '*/\.*' -not -path "$LOG_DIR/*" -newer "$lastFullBackupTimestamp" -print0 >> "$tempFilesFound" 2>/dev/null
-        else
-            for arg in "${fileTypes[@]}"
+        #Reads timestamp in last FULL backup timestamp file, as will be used in the find
+        local lastFullBackupTimestamp=$(cat "$lastFullBackupTimeStampFile")
+        local timestamp=$(date +%s) #timestamp will be used for logging purposes
+        local filename="dbup24s-${dbupCounter}.tar" #File with respected number will be used for backup and logging
+        local tempFiles=$(mktemp) #Temporary dir with temp files created to add relevant files so tar speed can be optimized
+
+        #Finding files in the Root directory
+        if [ ${#fileExtToFind[@]} -eq 0 ]; then #If user has not mentioned any file types backup all
+            find "$ROOT" -type f -not -path '*/\.*' -not -path "$mainBackUpDir/*" -newermt "@$lastFullBackupTimestamp" -print0 > "$tempFiles"
+        else #If user has entered file types like .c .txt only those will be searched for in the Root Directory
+            for arg in "${fileExtToFind[@]}"
             do
-                find "$ROOT" -type f -name "*$arg" -not -path '*/\.*' -not -path "$LOG_DIR/*" -newer "$lastFullBackupTimestamp" -print0 >> "$tempFilesFound" 2>/dev/null
+                find "$ROOT" -type f -name "*$arg" -not -path '*/\.*' -not -path "$mainBackUpDir/*" -newermt "@$lastFullBackupTimestamp" -print0 >> "$tempFiles"
             done
         fi
 
-        #If files foind then backup
-        if [ -s "$tempFilesFound" ]; then
-            tar --null -cvf "$DBUP_DIR/$filename" --files-from="$tempFilesFound" 2>/dev/null #backup
-            
-            #If backup succesfull
-            if [ $? -eq 0 ]; then
-                logbackupDetails "$filename was created."
-                ((dbupCounter++))
-                echo "$timestamp" > "$lastDifferentialBackupTimeStampFile"
-                echo "Differential backup Completed"
-            fi
-        else #iF NO files found and dont need to be backed up
+        #If there are files found and were added to temp Files
+        if [ -s "$tempFiles" ]; then
+            #Backing up the files that we found and stored in the Temp Files
+            tar --null -cvf "$differentialBackUpDir/$filename" --files-from="$tempFiles" 2>/dev/null
+            logbackupDetails "$filename was created." #Log backup details
+            ((dbupCounter++)) #Increase the counter for the next file
+            echo "$timestamp" > "$lastDifferentialBackupTimeStampFile" #Update the time stamp
+            echo "Differential backup Completed"
+        else #If no files were found, means no backup was needed to be done
             logbackupDetails "No changes-Differential backup was not created"
             echo "Differential backup Completed"
         fi
-        rm -f "$tempFilesFound" #Delete the temporary filesx
+
+        #Remove the temporary files as not needed further
+        rm -f "$tempFiles"
     fi
 
-    #Step 5 Incremental backup round3 to back up new or updated files since last differential backup
+    #Step 5 will now intiate and consider finding and backing up thse files that were created or modified after STEP 4
     if [[ $key == "incrementalRound3" ]]; then
-        local lastDifferentialBackupTimeStamp="$lastDifferentialBackupTimeStampFile"
-        local timestamp=$(date +%s) 
-        local filename="ibup24s-${ibupCounter}.tar"
-        local tempFilesFound="$LOG_DIR/.tempFindResults"
-        #echo $filename
-
         echo "Incremental Backup Round 3 Started. Visitng entire ROOT directory, may take some time. Please wait..."
 
-        #Check if the user has entered any file types or not and perform find wrt that
-         # Find the updatd or newly created files since last DIFFERENTIAL bakup based on user input
-        if [ ${#fileTypes[@]} -eq 0 ]; then
-            find "$ROOT" -type f -not -path '*/\.*' -not -path "$LOG_DIR/*" -newer "$lastDifferentialBackupTimeStamp" -print0 >> "$tempFilesFound" 2>/dev/null
-        else
-            for arg in "${fileTypes[@]}"
+        #Reads timestamp in last DIFFERENTIAL backup timestamp file, as will be used in the find
+        local lastDifferentialBackupTimeStamp=$(cat "$lastDifferentialBackupTimeStampFile")
+        local timestamp=$(date +%s) #timestamp will be used for logging purposes
+        local filename="ibup24s-${ibupCounter}.tar" #File with respected number will be used for backup and logging
+        local tempFiles=$(mktemp) #Temporary dir with temp files created to add relevant files so tar speed can be optimized
+
+        #Finding files in the Root directory
+        if [ ${#fileExtToFind[@]} -eq 0 ]; then #If user has not mentioned any file types backup all
+            find "$ROOT" -type f -not -path '*/\.*' -not -path "$mainBackUpDir/*" -newermt "@$lastDifferentialBackupTimeStamp" -print0 > "$tempFiles"
+        else #If user has entered file types like .c .txt only those will be searched for in the Root Directory
+            for arg in "${fileExtToFind[@]}"
             do
-                find "$ROOT" -type f -name "*$arg" -not -path '*/\.*' -not -path "$LOG_DIR/*" -newer "$lastDifferentialBackupTimeStamp" -print0 >> "$tempFilesFound" 2>/dev/null
+                find "$ROOT" -type f -name "*$arg" -not -path '*/\.*' -not -path "$mainBackUpDir/*" -newermt "@$lastDifferentialBackupTimeStamp" -print0 >> "$tempFiles"
             done
         fi
 
-        #If files Found
-        if [ -s "$tempFilesFound" ]; then
-            tar --null -cvf "$IBUP_DIR/$filename" --files-from="$tempFilesFound" 2>/dev/null #backup
-            if [ $? -eq 0 ]; then
-                logbackupDetails "$filename was created."
-                ((ibupCounter++))
-                echo "$timestamp" > "$lastIncremenralBackupTimeStampFile"
-                echo "Incremental Backup Round 3 Completed"
-            fi
-        else #No files found
+        #If there are files found and were added to temp Files
+        if [ -s "$tempFiles" ]; then
+            #Backing up the files that we found and stored in the Temp Files
+            tar --null -cvf "$incrementalBackUpDir/$filename" --files-from="$tempFiles" 2>/dev/null
+            logbackupDetails "$filename was created." #Log backup details
+            ((ibupCounter++)) #Increase the counter for the next file
+            echo "$timestamp" > "$lastIncrementalBackupTimeStampFile" #Update the time stamp
+            echo "Incremental Backup Round 3 Completed"
+        else #If no files were found, means no backup was needed to be done
             logbackupDetails "No changes-Incremental backup was not created"
             echo "Incremental Backup Round 3 Completed"
         fi
-        rm -f "$tempFilesFound" #Deletein the temporaty file
+
+        #Remove the temporary files as not needed further
+        rm -f "$tempFiles"
     fi
 }
 
-#Infinte loop tp perfor bakup operations
-while true; do
-    backupFiles "complete"
-    sleep 60
+# Infinite loop to perform backup operations with the help of an array and a sleep duration of 120 seconds
+backupTypes=("complete" "incrementalRound1" "incrementalRound2" "differential" "incrementalRound3")
+sleepDuration=120
 
-    backupFiles "incrementalRound1"
-    sleep 60
-
-    backupFiles "incrementalRound2"
-    sleep 60
-
-    backupFiles "differential"
-    sleep 60
-
-    backupFiles "incrementalRound3"
-    sleep 60
+for (( ; ; )); do
+    for backupType in "${backupTypes[@]}"; do
+        backupFiles "$backupType"
+        sleep "$sleepDuration"
+    done
 done
