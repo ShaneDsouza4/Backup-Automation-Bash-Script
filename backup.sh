@@ -2,7 +2,7 @@
 
 USERNAME="dsouza56"
 ROOT="/home/$USERNAME"
-LOG_DIR="$ROOT/backup"
+LOG_DIR="$ROOT/home/backup"
 CBUP_DIR="$LOG_DIR/cbup24s"
 IBUP_DIR="$LOG_DIR/ibup24s"
 DBUP_DIR="$LOG_DIR/dbup24s"
@@ -250,17 +250,17 @@ backupFiles() {
 #Infinte loop tp perfor bakup operations
 while true; do
     backupFiles "complete"
-    sleep 120
+    sleep 60
 
     backupFiles "incrementalRound1"
-    sleep 120
+    sleep 60
 
     backupFiles "incrementalRound2"
-    sleep 120
+    sleep 60
 
     backupFiles "differential"
-    sleep 120
+    sleep 60
 
     backupFiles "incrementalRound3"
-    sleep 120
+    sleep 60
 done
